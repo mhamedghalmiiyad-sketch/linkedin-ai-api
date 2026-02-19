@@ -15,7 +15,7 @@ WARMUP_URL = f"{BASE_URL}/index.php?i=1"
 CHAT_URL = f"{BASE_URL}/deepseek.php"
 COOKIE_DOMAIN = "asmodeus.free.nf"
 
-API_KEY: Optional[str] = "20262025"
+API_KEY: Optional[str] = "20262555555025"
 
 SESSION_TTL_SECONDS = 600
 REQUEST_TIMEOUT_SECONDS = 60
