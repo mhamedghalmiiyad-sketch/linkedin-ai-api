@@ -16,7 +16,7 @@ CHAT_URL = f"{BASE_URL}/deepseek.php"
 COOKIE_DOMAIN = "asmodeus.free.nf"
 
 API_KEY: Optional[str] = "20262025"
-MODEL_NAME = "DeepSeek-V3-0324" # 👈 Hardcoded working model!
+MODEL_NAME = "DeepSeek-R1-0528" # 👈 Your chosen model
 
 SESSION_TTL_SECONDS = 600
 REQUEST_TIMEOUT_SECONDS = 60
@@ -29,7 +29,7 @@ _session_created_at: float = 0.0
 
 
 class ChatReq(BaseModel):
-    question: str # 👈 Node.js only sends the text now
+    question: str
 
 
 def _extract_challenge_values(html: str) -> tuple[bytes, bytes, bytes]:
@@ -70,8 +70,15 @@ def _get_session() -> requests.Session:
 
 
 def _post_chat(session: requests.Session, question: str) -> requests.Response:
-    # 🧠 FORCE STRICT YES/NO BEHAVIOR HERE
-    strict_prompt = f"Read this LinkedIn post. Does it contain a GENUINE job offer related to industrial automation, electrical engineering, PLC, or SCADA? Answer strictly with the word YES or NO and nothing else.\n\nPost:\n{question}"
+    # 🧠 STRICT AI RULES ADDED HERE (Algeria + Recent Only)
+    strict_prompt = (
+        f"Read this LinkedIn post. Determine if it is a GENUINE job offer related to industrial automation, electrical engineering, PLC, or SCADA.\n"
+        f"IMPORTANT RULES:\n"
+        f"1. The job MUST be located in Algeria (e.g., Algérie, Alger, Oran, Boumerdès, Annaba, Hassi Messaoud). If the location is explicitly in another country, answer NO.\n"
+        f"2. The job must be recent. If the post explicitly says it is older than 2 weeks, or that the position is already closed, answer NO.\n"
+        f"Answer strictly with the word YES or NO and nothing else.\n\n"
+        f"Post:\n{question}"
+    )
     
     return session.post(
         CHAT_URL,
