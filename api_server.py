@@ -66,22 +66,18 @@ def _get_session() -> requests.Session:
         return _session
 
 def _post_chat(session: requests.Session, question: str) -> requests.Response:
-    resume_data = """
-    Applicant: GHALMI Mohamed Ayad
-    Role: Industrial Automation Engineer (Master's Degree, 2025)
-    Location: Boumerdes, Algeria
-    """
-
+    # 🧠 STRICT PROMPT: Job filtering & No Hallucinations
     strict_prompt = (
         f"You are an expert career assistant. Read the LinkedIn post below.\n"
-        f"STEP 1: Check if it is a GENUINE job offer located in Algeria AND is recent. If NO, reply strictly with the word NO.\n\n"
-        f"STEP 2: If YES, write a VERY SHORT, highly natural email application in French.\n"
+        f"STEP 1: Check if it is a GENUINE job offer located in Algeria AND is recent. If NO, reply strictly with the word NO.\n"
+        f"STEP 2: Check the Job Title. It MUST be one of the following levels: Ingénieur, Technicien, or Opérateur. The field MUST be related to: Automatisme, Maintenance, Électricité, Instrumentation, or Électromécanique. If the job is for a Senior Management role (Directeur, Responsable, Manager, Chef), reply strictly with the word NO.\n\n"
+        f"STEP 3: If YES to both, write a VERY SHORT, highly natural email application in French.\n"
         f"EMAIL RULES:\n"
-        f"- DO NOT list technical skills.\n"
+        f"- Do NOT list technical skills.\n"
         f"- Keep it to exactly 2 or 3 short sentences.\n"
-        f"- DO NOT use placeholders like [Entreprise]. Just write 'votre entreprise' instead.\n"
-        f"- Output strictly plain text. No HTML.\n"
-        f"Applicant Info:\n{resume_data}\n\n"
+        f"- NEVER include phone numbers, fake email addresses, placeholders, or LinkedIn URLs in the text.\n"
+        f"- Sign off strictly and only as: 'Cordialement, Mohamed Ayad GHALMI'.\n"
+        f"- Output strictly plain text. No HTML.\n\n"
         f"FINAL OUTPUT FORMAT:\n"
         f"YES\n"
         f"TITLE: [Job Title]\n"
@@ -121,35 +117,23 @@ def chat(req: ChatReq, x_api_key: Optional[str] = Header(default=None)):
     m = re.search(r'<div class="response-content">(.*?)</div>', r.text, flags=re.DOTALL | re.IGNORECASE)
     answer_text = m.group(1).strip() if m else ""
     
-    # 🧹 1. Decode HTML entities FIRST (turns &lt;think&gt; into <think>)
     answer_text = html.unescape(answer_text)
-    
-    # 🧹 2. Erase the <think> blocks completely
     answer_text = re.sub(r'<think>.*?</think>', '', answer_text, flags=re.DOTALL | re.IGNORECASE)
     
-    # 🧹 3. Failsafe: If the start tag was missing but </think> exists, split and keep only what comes AFTER it.
     if '</think>' in answer_text:
         answer_text = answer_text.split('</think>')[-1]
 
-    # 🧹 4. Clean up remaining HTML tags (like <br>)
     answer_text = re.sub(r'<br\s*/?>', '\n', answer_text, flags=re.IGNORECASE)
-    answer_text = re.sub(r'<[^>]+>', '', answer_text)
+    answer_text = re.sub(r'<[^>]+>', '', answer_text).strip()
     
-    answer_text = answer_text.strip()
-    
-    default_email = "Bonjour,\n\nJe suis très intéressé par le poste que vous avez publié. Mon profil technique correspond à vos besoins et je vous joins mon CV pour plus de détails.\n\nCordialement,\nGHALMI Mohamed Ayad"
+    default_email = "Bonjour,\n\nJe suis très intéressé par le poste que vous avez publié. Mon profil technique correspond à vos besoins et je vous joins mon CV pour plus de détails.\n\nCordialement,\nMohamed Ayad GHALMI"
 
     if "YES" in answer_text.upper():
-        # Extract Title
         title_match = re.search(r'TITLE:\s*([^\n]+)', answer_text, re.IGNORECASE)
-        title = title_match.group(1).strip() if title_match else "Ingénieur en Automatique"
+        title = title_match.group(1).strip() if title_match else "Ingénieur / Technicien"
         
-        # Extract Email (Takes everything strictly AFTER the word EMAIL:)
         parts = re.split(r'EMAIL:\s*', answer_text, flags=re.IGNORECASE)
-        if len(parts) > 1:
-            email_body = parts[-1].strip()
-        else:
-            email_body = default_email
+        email_body = parts[-1].strip() if len(parts) > 1 else default_email
             
         return {"answer": "YES", "title": title, "email_body": email_body}
     
