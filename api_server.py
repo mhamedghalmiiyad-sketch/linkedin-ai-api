@@ -66,21 +66,23 @@ def _get_session() -> requests.Session:
         return _session
 
 def _post_chat(session: requests.Session, question: str) -> requests.Response:
-    # 🧠 STRICT PROMPT: Job filtering & No Hallucinations
+    # 🧠 UPDATED PROMPT: Language Matching & Strict Formatting
     strict_prompt = (
         f"You are an expert career assistant. Read the LinkedIn post below.\n"
-        f"STEP 1: Check if it is a GENUINE job offer located in Algeria AND is recent. If NO, reply strictly with the word NO.\n"
-        f"STEP 2: Check the Job Title. It MUST be one of the following levels: Ingénieur, Technicien, or Opérateur. The field MUST be related to: Automatisme, Maintenance, Électricité, Instrumentation, or Électromécanique. If the job is for a Senior Management role (Directeur, Responsable, Manager, Chef), reply strictly with the word NO.\n\n"
-        f"STEP 3: If YES to both, write a VERY SHORT, highly natural email application in French.\n"
-        f"EMAIL RULES:\n"
-        f"- Do NOT list technical skills.\n"
-        f"- Keep it to exactly 2 or 3 short sentences.\n"
-        f"- NEVER include phone numbers, fake email addresses, placeholders, or LinkedIn URLs in the text.\n"
-        f"- Sign off strictly and only as: 'Cordialement, Mohamed Ayad GHALMI'.\n"
+        f"STEP 1: Check if it is a GENUINE job offer located in Algeria AND is recent. If NO, reply strictly with NO.\n"
+        f"STEP 2: Check the Job Title. It MUST be an Engineering, Technician, or Operator role. The field MUST be related to: Automation, Maintenance, Electricity, Instrumentation, or Electromechanics. If it is a Senior role (Directeur, Responsable, Manager, Chef, Supervisor), reply strictly with NO.\n\n"
+        f"STEP 3: If YES to both, write a VERY SHORT, highly natural email application.\n"
+        f"CRITICAL EMAIL RULES:\n"
+        f"- LANGUAGE: Write the email in the EXACT SAME LANGUAGE as the LinkedIn post (English or French).\n"
+        f"- TITLE CONSISTENCY: The job title you mention inside the email body MUST perfectly match the TITLE you extract.\n"
+        f"- Do NOT list technical skills. Keep it to exactly 2 short sentences.\n"
+        f"- NEVER include fake email addresses or placeholders.\n"
+        f"- SIGNATURE: End the email exactly like this:\n"
+        f"Cordialement, (or Best regards,)\n\nMohamed Ayad GHALMI\n"
         f"- Output strictly plain text. No HTML.\n\n"
         f"FINAL OUTPUT FORMAT:\n"
         f"YES\n"
-        f"TITLE: [Job Title]\n"
+        f"TITLE: [Extracted Job Title]\n"
         f"EMAIL: [Your generated email body]\n\n"
         f"Post:\n{question}"
     )
@@ -125,15 +127,13 @@ def chat(req: ChatReq, x_api_key: Optional[str] = Header(default=None)):
 
     answer_text = re.sub(r'<br\s*/?>', '\n', answer_text, flags=re.IGNORECASE)
     answer_text = re.sub(r'<[^>]+>', '', answer_text).strip()
-    
-    default_email = "Bonjour,\n\nJe suis très intéressé par le poste que vous avez publié. Mon profil technique correspond à vos besoins et je vous joins mon CV pour plus de détails.\n\nCordialement,\nMohamed Ayad GHALMI"
 
     if "YES" in answer_text.upper():
         title_match = re.search(r'TITLE:\s*([^\n]+)', answer_text, re.IGNORECASE)
         title = title_match.group(1).strip() if title_match else "Ingénieur / Technicien"
         
         parts = re.split(r'EMAIL:\s*', answer_text, flags=re.IGNORECASE)
-        email_body = parts[-1].strip() if len(parts) > 1 else default_email
+        email_body = parts[-1].strip() if len(parts) > 1 else ""
             
         return {"answer": "YES", "title": title, "email_body": email_body}
     
