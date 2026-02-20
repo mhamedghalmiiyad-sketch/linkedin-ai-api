@@ -1,6 +1,7 @@
 import re
 import time
 import threading
+import html
 from typing import Optional
 
 import requests
@@ -16,7 +17,7 @@ CHAT_URL = f"{BASE_URL}/deepseek.php"
 COOKIE_DOMAIN = "asmodeus.free.nf"
 
 API_KEY: Optional[str] = "20262025"
-MODEL_NAME = "DeepSeek-R1-0528" # DeepSeek R1 is excellent at writing emails
+MODEL_NAME = "DeepSeek-R1-0528"
 
 SESSION_TTL_SECONDS = 600
 REQUEST_TIMEOUT_SECONDS = 60
@@ -30,8 +31,8 @@ _session_created_at: float = 0.0
 class ChatReq(BaseModel):
     question: str
 
-def _extract_challenge_values(html: str) -> tuple[bytes, bytes, bytes]:
-    matches = re.findall(r'toNumbers\("([a-f0-9]+)"\)', html, flags=re.IGNORECASE)
+def _extract_challenge_values(html_text: str) -> tuple[bytes, bytes, bytes]:
+    matches = re.findall(r'toNumbers\("([a-f0-9]+)"\)', html_text, flags=re.IGNORECASE)
     if len(matches) < 3:
         raise RuntimeError("Challenge values not found in HTML.")
     key = bytes.fromhex(matches[0])
@@ -65,21 +66,23 @@ def _get_session() -> requests.Session:
         return _session
 
 def _post_chat(session: requests.Session, question: str) -> requests.Response:
-    # 🧠 THE ULTIMATE PROMPT: Rules + Your Resume
     resume_data = """
     Applicant: GHALMI Mohamed Ayad
     Role: Industrial Automation Engineer (Master's Degree, 2025)
     Location: Boumerdes, Algeria
-    Skills: Siemens SIMATIC S7-1200/S5, Allen-Bradley SLC 500, TIA Portal, RSLogix 500, SCADA, HMI (SMKON), VFDs (Schneider, ABB), Electrical Wiring & Troubleshooting, Corrective/Preventive Maintenance.
-    Experience: Automation Engineer at Alwaha International (07/2025 - Present).
-    Languages: Arabic, English, French.
     """
 
+    # 🧠 UPDATED PROMPT: Forced to be extremely natural and short!
     strict_prompt = (
         f"You are an expert career assistant. Read the LinkedIn post below.\n"
         f"STEP 1: Check if it is a GENUINE job offer located in Algeria (e.g., Algérie, Alger, Oran, Boumerdès) AND is recent (not older than 2 weeks). If NO, reply strictly with the word NO.\n\n"
-        f"STEP 2: If YES, write a short, highly professional, human-sounding email application in French applying for this specific job. Tailor the email to match the job description using the applicant's resume below. Keep it concise (3-4 short paragraphs maximum) and natural. Do NOT include subject lines in the email body, just start with 'Bonjour,'.\n\n"
-        f"Applicant Resume:\n{resume_data}\n\n"
+        f"STEP 2: If YES, write a VERY SHORT, highly natural email application in French applying for this specific job.\n"
+        f"EMAIL RULES:\n"
+        f"- DO NOT list technical skills (like Siemens, SCADA, VFDs).\n"
+        f"- Keep it to exactly 2 or 3 short sentences.\n"
+        f"- Just say: Bonjour, you are interested in the [Job Title] position at [Company Name], your profile matches their needs, and your CV is attached.\n"
+        f"- DO NOT use HTML tags (no <br>). Output strictly plain text.\n\n"
+        f"Applicant Info:\n{resume_data}\n\n"
         f"You MUST format your output exactly like this:\n"
         f"YES\nTITLE: [Extract a short Job Title in French]\nEMAIL:\n[Your generated email body]\n\n"
         f"Post:\n{question}"
@@ -117,8 +120,12 @@ def chat(req: ChatReq, x_api_key: Optional[str] = Header(default=None)):
     m = re.search(r'<div class="response-content">(.*?)</div>', r.text, flags=re.DOTALL | re.IGNORECASE)
     answer_text = m.group(1).strip() if m else ""
     
-    # 🛑 STRIP AI "THINKING" TAGS (Crucial for DeepSeek-R1)
     answer_text = re.sub(r'<think>.*?</think>', '', answer_text, flags=re.DOTALL).strip()
+    
+    # Clean up HTML SPAM
+    answer_text = re.sub(r'<br\s*/?>', '\n', answer_text, flags=re.IGNORECASE)
+    answer_text = re.sub(r'<[^>]+>', '', answer_text)
+    answer_text = html.unescape(answer_text)
 
     if answer_text.startswith("YES") or "TITLE:" in answer_text:
         title_match = re.search(r'TITLE:\s*(.*)', answer_text, re.IGNORECASE)
