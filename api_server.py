@@ -16,7 +16,7 @@ CHAT_URL = f"{BASE_URL}/deepseek.php"
 COOKIE_DOMAIN = "asmodeus.free.nf"
 
 API_KEY: Optional[str] = "20262025"
-MODEL_NAME = "DeepSeek-R1-0528" # 👈 Your chosen model
+MODEL_NAME = "DeepSeek-R1-0528" # DeepSeek R1 is excellent at writing emails
 
 SESSION_TTL_SECONDS = 600
 REQUEST_TIMEOUT_SECONDS = 60
@@ -27,10 +27,8 @@ _lock = threading.Lock()
 _session: Optional[requests.Session] = None
 _session_created_at: float = 0.0
 
-
 class ChatReq(BaseModel):
     question: str
-
 
 def _extract_challenge_values(html: str) -> tuple[bytes, bytes, bytes]:
     matches = re.findall(r'toNumbers\("([a-f0-9]+)"\)', html, flags=re.IGNORECASE)
@@ -40,7 +38,6 @@ def _extract_challenge_values(html: str) -> tuple[bytes, bytes, bytes]:
     iv = bytes.fromhex(matches[1])
     data = bytes.fromhex(matches[2])
     return key, iv, data
-
 
 def _build_session() -> requests.Session:
     s = requests.Session()
@@ -58,7 +55,6 @@ def _build_session() -> requests.Session:
 
     return s
 
-
 def _get_session() -> requests.Session:
     global _session, _session_created_at
     with _lock:
@@ -68,15 +64,24 @@ def _get_session() -> requests.Session:
             _session_created_at = now
         return _session
 
-
 def _post_chat(session: requests.Session, question: str) -> requests.Response:
-    # 🧠 STRICT AI RULES ADDED HERE (Algeria + Recent Only)
+    # 🧠 THE ULTIMATE PROMPT: Rules + Your Resume
+    resume_data = """
+    Applicant: GHALMI Mohamed Ayad
+    Role: Industrial Automation Engineer (Master's Degree, 2025)
+    Location: Boumerdes, Algeria
+    Skills: Siemens SIMATIC S7-1200/S5, Allen-Bradley SLC 500, TIA Portal, RSLogix 500, SCADA, HMI (SMKON), VFDs (Schneider, ABB), Electrical Wiring & Troubleshooting, Corrective/Preventive Maintenance.
+    Experience: Automation Engineer at Alwaha International (07/2025 - Present).
+    Languages: Arabic, English, French.
+    """
+
     strict_prompt = (
-        f"Read this LinkedIn post. Determine if it is a GENUINE job offer related to industrial automation, electrical engineering, PLC, or SCADA.\n"
-        f"IMPORTANT RULES:\n"
-        f"1. The job MUST be located in Algeria (e.g., Algérie, Alger, Oran, Boumerdès, Annaba, Hassi Messaoud). If the location is explicitly in another country, answer NO.\n"
-        f"2. The job must be recent. If the post explicitly says it is older than 2 weeks, or that the position is already closed, answer NO.\n"
-        f"Answer strictly with the word YES or NO and nothing else.\n\n"
+        f"You are an expert career assistant. Read the LinkedIn post below.\n"
+        f"STEP 1: Check if it is a GENUINE job offer located in Algeria (e.g., Algérie, Alger, Oran, Boumerdès) AND is recent (not older than 2 weeks). If NO, reply strictly with the word NO.\n\n"
+        f"STEP 2: If YES, write a short, highly professional, human-sounding email application in French applying for this specific job. Tailor the email to match the job description using the applicant's resume below. Keep it concise (3-4 short paragraphs maximum) and natural. Do NOT include subject lines in the email body, just start with 'Bonjour,'.\n\n"
+        f"Applicant Resume:\n{resume_data}\n\n"
+        f"You MUST format your output exactly like this:\n"
+        f"YES\nTITLE: [Extract a short Job Title in French]\nEMAIL:\n[Your generated email body]\n\n"
         f"Post:\n{question}"
     )
     
@@ -87,19 +92,14 @@ def _post_chat(session: requests.Session, question: str) -> requests.Response:
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
 
-
 @app.get("/health")
 def health():
     return {"ok": True}
-
 
 @app.post("/chat")
 def chat(req: ChatReq, x_api_key: Optional[str] = Header(default=None)):
     if API_KEY is not None and x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
-
-    if not req.question.strip():
-        raise HTTPException(status_code=400, detail="question is required")
 
     session = _get_session()
 
@@ -114,24 +114,19 @@ def chat(req: ChatReq, x_api_key: Optional[str] = Header(default=None)):
         r = _post_chat(session, req.question)
         r.raise_for_status()
 
-    m = re.search(
-        r'<div class="response-content">(.*?)</div>',
-        r.text,
-        flags=re.DOTALL | re.IGNORECASE,
-    )
-
-    answer = m.group(1).strip() if m else ""
+    m = re.search(r'<div class="response-content">(.*?)</div>', r.text, flags=re.DOTALL | re.IGNORECASE)
+    answer_text = m.group(1).strip() if m else ""
     
-    # Clean up the answer to ensure it's just YES or NO
-    upper_answer = answer.upper()
-    if "YES" in upper_answer:
-        final_answer = "YES"
-    elif "NO" in upper_answer:
-        final_answer = "NO"
-    else:
-        final_answer = answer # Fallback just in case
+    # 🛑 STRIP AI "THINKING" TAGS (Crucial for DeepSeek-R1)
+    answer_text = re.sub(r'<think>.*?</think>', '', answer_text, flags=re.DOTALL).strip()
 
-    return {
-        "model": MODEL_NAME,
-        "answer": final_answer,
-    }
+    if answer_text.startswith("YES") or "TITLE:" in answer_text:
+        title_match = re.search(r'TITLE:\s*(.*)', answer_text, re.IGNORECASE)
+        email_match = re.search(r'EMAIL:\s*(.*)', answer_text, re.IGNORECASE | re.DOTALL)
+        
+        title = title_match.group(1).strip() if title_match else "Ingénieur en Automatique"
+        email_body = email_match.group(1).strip() if email_match else "Bonjour,\n\nJe vous soumets ma candidature pour ce poste.\n\nCordialement,\nGHALMI Mohamed Ayad"
+        
+        return {"answer": "YES", "title": title, "email_body": email_body}
+    
+    return {"answer": "NO"}
