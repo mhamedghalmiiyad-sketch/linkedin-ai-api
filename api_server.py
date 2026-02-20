@@ -15,7 +15,8 @@ WARMUP_URL = f"{BASE_URL}/index.php?i=1"
 CHAT_URL = f"{BASE_URL}/deepseek.php"
 COOKIE_DOMAIN = "asmodeus.free.nf"
 
-API_KEY: Optional[str] = "20262555555025"
+API_KEY: Optional[str] = "20262025"
+MODEL_NAME = "DeepSeek-V3-0324" # 👈 Hardcoded working model!
 
 SESSION_TTL_SECONDS = 600
 REQUEST_TIMEOUT_SECONDS = 60
@@ -28,8 +29,7 @@ _session_created_at: float = 0.0
 
 
 class ChatReq(BaseModel):
-    model: str
-    question: str
+    question: str # 👈 Node.js only sends the text now
 
 
 def _extract_challenge_values(html: str) -> tuple[bytes, bytes, bytes]:
@@ -69,11 +69,14 @@ def _get_session() -> requests.Session:
         return _session
 
 
-def _post_chat(session: requests.Session, model: str, question: str) -> requests.Response:
+def _post_chat(session: requests.Session, question: str) -> requests.Response:
+    # 🧠 FORCE STRICT YES/NO BEHAVIOR HERE
+    strict_prompt = f"Read this LinkedIn post. Does it contain a GENUINE job offer related to industrial automation, electrical engineering, PLC, or SCADA? Answer strictly with the word YES or NO and nothing else.\n\nPost:\n{question}"
+    
     return session.post(
         CHAT_URL,
         params={"i": "1"},
-        data={"model": model, "question": question},
+        data={"model": MODEL_NAME, "question": strict_prompt},
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
 
@@ -88,23 +91,20 @@ def chat(req: ChatReq, x_api_key: Optional[str] = Header(default=None)):
     if API_KEY is not None and x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
-    if not req.model.strip():
-        raise HTTPException(status_code=400, detail="model is required")
-
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="question is required")
 
     session = _get_session()
 
     try:
-        r = _post_chat(session, req.model, req.question)
+        r = _post_chat(session, req.question)
         r.raise_for_status()
     except Exception:
         with _lock:
             global _session
             _session = None
         session = _get_session()
-        r = _post_chat(session, req.model, req.question)
+        r = _post_chat(session, req.question)
         r.raise_for_status()
 
     m = re.search(
@@ -114,9 +114,17 @@ def chat(req: ChatReq, x_api_key: Optional[str] = Header(default=None)):
     )
 
     answer = m.group(1).strip() if m else ""
+    
+    # Clean up the answer to ensure it's just YES or NO
+    upper_answer = answer.upper()
+    if "YES" in upper_answer:
+        final_answer = "YES"
+    elif "NO" in upper_answer:
+        final_answer = "NO"
+    else:
+        final_answer = answer # Fallback just in case
 
     return {
-        "model": req.model,
-        "question": req.question,
-        "answer": answer,
+        "model": MODEL_NAME,
+        "answer": final_answer,
     }
